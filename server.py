@@ -11,6 +11,22 @@ from typing import List, Dict, Any, Optional
 
 mcp = FastMCP("FIX Bridge", instructions="Bridge FIX trading messages to ONE OS — parse, map, govern (MiFID II / best execution).")
 
+# ── SIGIL: every governed action → one signed hash-chained hop (SIGIL_LOG unifies all layers) ──
+import hashlib as _hl, time as _t, json as _j, os as _os
+_SIGIL_LOG = _os.environ.get("SIGIL_LOG", _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "bridge_sigil.log"))
+def _sigil(op, body):
+    try:
+        prev = ""
+        if _os.path.exists(_SIGIL_LOG):
+            with open(_SIGIL_LOG) as f:
+                ls = f.readlines()
+                if ls: prev = _j.loads(ls[-1]).get("digest", "")
+        ts = int(_t.time()); dg = _hl.sha256(f"{op}|{ts}|{prev[:8]}|{body}".encode()).hexdigest()[:16]
+        _os.makedirs(_os.path.dirname(_SIGIL_LOG), exist_ok=True)
+        with open(_SIGIL_LOG, "a") as f: f.write(_j.dumps({"ts": ts, "op": op, "body": body, "prev_digest": prev, "digest": dg}) + "\n")
+        return dg
+    except Exception: return ""
+
 MSG_TYPE = {"D": "New Order - Single", "8": "Execution Report", "F": "Order Cancel Request",
             "G": "Order Cancel/Replace", "0": "Heartbeat", "A": "Logon", "AE": "Trade Capture Report"}
 SIDE = {"1": "Buy", "2": "Sell", "5": "Sell short"}
@@ -77,6 +93,7 @@ def map_to_modern(message: str) -> Dict[str, Any]:
 @mcp.tool()
 def govern_trade(message: str) -> Governance:
     """Governance: MiFID II / best-execution / market-abuse surface (attestable for CSOAI)."""
+    _sigil("G", "fix|govern_trade")
     p = parse_fix(message)
     flags = []
     if p.msg_type == "D":
